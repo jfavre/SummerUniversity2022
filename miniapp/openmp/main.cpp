@@ -19,6 +19,10 @@
 #include <omp.h>
 #include <stdio.h>
 
+#ifdef USE_ASCENT
+#include "AscentAdaptor.h"
+using namespace AscentAdaptor;
+#endif
 #include "data.h"
 #include "linalg.h"
 #include "operators.h"
@@ -165,8 +169,14 @@ int main(int argc, char* argv[])
     // start timer
     double timespent = -omp_get_wtime();
 
+#ifdef USE_ASCENT
+  AscentAdaptor::Initialize();
+  std::cout << "AscentInitialize" << std::endl;
+#endif
+
     // main timeloop
-    for (int timestep = 1; timestep <= nt; timestep++)
+    // int timestep = options.timestep;
+    for (options.timestep = 1; options.timestep <= nt; options.timestep++)
     {
         // set x_new and x_old to be the solution
         ss_copy(x_old, x_new, N);
@@ -199,19 +209,28 @@ int main(int argc, char* argv[])
         }
         iters_newton += it+1;
 
+#ifdef USE_ASCENT
+        if(!(options.timestep % 10))
+          AscentAdaptor::Execute();
+#endif
         // output some statistics
         if (converged && verbose_output) {
-            std::cout << "step " << timestep
+            std::cout << "step " << options.timestep
                       << " required " << it
                       << " iterations for residual " << residual
                       << std::endl;
         }
         if (!converged) {
-            std::cerr << "step " << timestep
+            std::cerr << "step " << options.timestep
                       << " ERROR : nonlinear iterations failed to converge" << std::endl;;
             break;
         }
     }
+
+#ifdef USE_ASCENT
+  AscentAdaptor::Finalize();
+#endif
+
 
     // get times
     timespent += omp_get_wtime();

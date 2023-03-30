@@ -11,6 +11,7 @@ struct Discretization
     int ny;       // y dimension
     int nt;       // number of time steps
     int N;        // total number of grid points
+    int timestep; // current timestep
     double dt;    // time step size
     double dx;    // distance between grid points
     double alpha; // dx^2/(D*dt)

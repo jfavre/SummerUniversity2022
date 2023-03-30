@@ -24,6 +24,11 @@
 #include "operators.h"
 #include "stats.h"
 
+#ifdef USE_ASCENT
+#include "AscentAdaptor.h"
+using namespace AscentAdaptor;
+#endif
+
 using namespace data;
 using namespace linalg;
 using namespace operators;
@@ -162,6 +167,12 @@ int main(int argc, char* argv[])
     }
 
     // TODO : ensure that the gpu copy of x_new has the up to date values that were just created
+    x_new.update_device();
+#ifdef USE_ASCENT
+  AscentAdaptor::Initialize();
+  std::cout << "AscentInitialize" << std::endl;
+#endif
+
 
     flops_bc = 0;
     flops_diff = 0;
@@ -173,7 +184,7 @@ int main(int argc, char* argv[])
     double timespent = -omp_get_wtime();
 
     // main timeloop
-    for (int timestep = 1; timestep <= nt; timestep++)
+    for (options.timestep = 1; options.timestep <= nt; options.timestep++)
     {
         // set x_new and x_old to be the solution
         ss_copy(x_old, x_new);
@@ -205,21 +216,31 @@ int main(int argc, char* argv[])
             ss_axpy(x_new, -1.0, deltax);
         }
         iters_newton += it+1;
+#ifdef USE_ASCENT
+        if(!(options.timestep % 10))
+          {
+          //x_new.update_host();
+          AscentAdaptor::Execute();
+          }
+#endif
 
         // output some statistics
         if (converged && verbose_output) {
-            std::cout << "step " << timestep
+            std::cout << "step " << options.timestep
                       << " required " << it
                       << " iterations for residual " << residual
                       << std::endl;
         }
         if (!converged) {
-            std::cerr << "step " << timestep
+            std::cerr << "step " << options.timestep
                       << " ERROR : nonlinear iterations failed to converge" << std::endl;;
             break;
         }
     }
 
+#ifdef USE_ASCENT
+  AscentAdaptor::Finalize();
+#endif
     // get times
     timespent += omp_get_wtime();
 
