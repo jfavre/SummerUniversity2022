@@ -23,6 +23,12 @@
 #include "AscentAdaptor.h"
 using namespace AscentAdaptor;
 #endif
+
+#ifdef USE_CATALYST
+#include "CatalystAdaptor.h"
+using namespace CatalystAdaptor;
+#endif
+
 #include "data.h"
 #include "linalg.h"
 #include "operators.h"
@@ -38,7 +44,8 @@ using namespace stats;
 // read command line arguments
 static void readcmdline(Discretization& options, int argc, char* argv[])
 {
-    if (argc<5 || argc>6)
+// we allow extra rguments for the Catalyst run-time
+    if (argc<5)
     {
         printf("Usage: main nx ny nt t verbose\n");
         printf("  nx        number of gridpoints in x-direction\n");
@@ -46,6 +53,8 @@ static void readcmdline(Discretization& options, int argc, char* argv[])
         printf("  nt        number of timesteps\n");
         printf("  t         total time\n");
         printf("  verbose   (optional) verbose output\n");
+        printf("  --pv ParaViewScript.py Catalyst insitu Python script\n");
+        printf("  --output pathnames for Catalyst insitu data I/O\n");
         exit(1);
     }
 
@@ -174,6 +183,11 @@ int main(int argc, char* argv[])
   std::cout << "AscentInitialize" << std::endl;
 #endif
 
+#ifdef USE_CATALYST
+  CatalystAdaptor::Initialize(argc, argv);
+  std::cout << "CatalystInitialize" << std::endl;
+#endif
+
     // main timeloop
     // int timestep = options.timestep;
     for (options.timestep = 1; options.timestep <= nt; options.timestep++)
@@ -213,6 +227,10 @@ int main(int argc, char* argv[])
         if(!(options.timestep % 10))
           AscentAdaptor::Execute();
 #endif
+
+#ifdef USE_CATALYST
+        CatalystAdaptor::Execute();
+#endif
         // output some statistics
         if (converged && verbose_output) {
             std::cout << "step " << options.timestep
@@ -231,6 +249,9 @@ int main(int argc, char* argv[])
   AscentAdaptor::Finalize();
 #endif
 
+#ifdef USE_ASCENT
+  AscentAdaptor::Finalize();
+#endif
 
     // get times
     timespent += omp_get_wtime();

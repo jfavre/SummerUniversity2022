@@ -27,20 +27,13 @@ if(INSITU STREQUAL "None")
   add_executable(miniapp ${C_SRCS})
   target_link_libraries(miniapp PUBLIC OpenMP::OpenMP_CXX)
 elseif(INSITU STREQUAL "Catalyst")
-    find_package(catalyst REQUIRED PATHS "${ParaView_DIR}/catalyst")
-    # we only need C++ compilers if we're building the Adaptor
-    enable_language(CXX)
-
-  target_compile_definitions(miniapp
-    PRIVATE
-      USE_CATALYST=1)
-  target_link_libraries(miniapp PRIVATE catalyst::catalyst)
+  add_executable(miniapp ${C_SRCS} CatalystAdaptor.cpp)
+  find_package(catalyst REQUIRED PATHS "${EBROOTCATALYST}/lib/cmake/catalyst-2.0")
+  target_compile_definitions(miniapp PRIVATE USE_CATALYST=1)
+  target_link_libraries(miniapp PRIVATE OpenMP::OpenMP_CXX catalyst::catalyst)
 elseif(INSITU STREQUAL "Ascent")
-    find_package(Ascent REQUIRED PATHS "/apps/daint/UES/Ascent/ascent-install/lib/cmake/ascent")
-    add_executable(miniapp ${C_SRCS} AscentAdaptor.cpp)
-    target_compile_definitions(miniapp
-	    PRIVATE
-	    USE_ASCENT=1
-	    )
-    target_link_libraries(miniapp PRIVATE OpenMP::OpenMP_CXX ascent::ascent )
+  find_package(Ascent REQUIRED PATHS "/apps/daint/UES/Ascent/ascent-install/lib/cmake/ascent")
+  add_executable(miniapp ${C_SRCS} AscentAdaptor.cpp)
+  target_compile_definitions(miniapp PRIVATE USE_ASCENT=1)
+  target_link_libraries(miniapp PRIVATE OpenMP::OpenMP_CXX ascent::ascent )
 endif()

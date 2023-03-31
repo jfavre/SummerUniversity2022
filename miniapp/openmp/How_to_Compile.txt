@@ -4,25 +4,48 @@ on Piz Daint, tested Thu Mar 30 03:09:21 PM CEST 2023
 
 module load daint-gpu
 module load CMake
-module load Ascent/0.9.0-CrayGNU-21.09
-module load cudatoolkit/21.3_11.2
 
 mkdir build
 cd build
 
-1) Compile first without Ascent
+0) Compile first without Ascent
 
 cmake -S .. -DCMAKE_BUILD_TYPE=Release
 make
 Test => should generate file output.b*
 ./bin/miniapp512 512 400 .1
 
-2) Compile with Ascent turned ON
+############ ASCENT support ##################################################
+1) Compile with Ascent turned ON
+
+module load Ascent/0.9.0-CrayGNU-21.09
+module load cudatoolkit/21.3_11.2
+
 ccmake -DINSITU=Ascent -S .. -DCMAKE_BUILD_TYPE=Release \
        -DRAJA_DIR=/apps/daint/UES/jenkins/7.0.UP03/21.09/daint-gpu/software/RAJA/2022.10.4-CrayGNU-21.09-cuda
 
 Test => should generate files {output.bin,output.bov} AND image files temperature*png
 
+pushd $SCRATCH
 rm {output.bin,output.bov} temperature_*png
 srun -C gpu -A csstaff --time 00:05:00 --partition=debug ./bin/miniapp 512 512 400 .1
 
+############ Catalyst support ##################################################
+on Piz Daint, tested Fri Mar 31 12:35:05 PM CEST 2023
+
+module load Catalyst
+
+2) Compile with Catalyst turned ON
+
+mkdir buildCatalyst
+cd buildCatalyst
+
+cmake -S .. -DINSITU=Catalyst -Dcatalyst_DIR=$EBROOTCATALYST/lib/cmake/catalyst-2.0
+
+Test:
+module load ParaView
+
+export CATALYST_IMPLEMENTATION_PATHS=$EBROOTPARAVIEW/lib/catalyst
+
+pushd $SCRATCH
+srun -C gpu -A csstaff --time 00:05:00 --partition=debug  /users/jfavre/Projects/SummerUniversity2022/miniapp/openmp/buildCatalyst/bin/miniapp 200 200 201 .01 --pv /users/jfavre/Projects/SummerUniversity2022/miniapp/openmp/catalyst_state.py
