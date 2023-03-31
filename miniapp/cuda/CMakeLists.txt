@@ -11,7 +11,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(CUDA_SRCS
-stats.cu  data.cu  operators.cu  linalg.cu    main.cu
+  stats.cu
+  data.cu
+  operators.cu
+  linalg.cu
+  main.cu
 )
 
 
@@ -36,12 +40,10 @@ if(INSITU STREQUAL "None")
 #  target_compile_options(miniapp PRIVATE "${CRAY_HPC_SDK_INCLUDE_OPTS}")
   target_link_libraries(miniapp PRIVATE cublas OpenMP::OpenMP_CXX)
 elseif(INSITU STREQUAL "Catalyst")
-  find_package(catalyst REQUIRED PATHS "${ParaView_DIR}/catalyst")
-  # we only need C++ compilers if we're building the Adaptor
-  enable_language(CXX)
-
+	add_executable(miniapp ${CUDA_SRCS} CatalystAdaptor.cu)
+  find_package(catalyst REQUIRED PATHS "${EBROOTCATALYST}/lib/cmake/catalyst-2.0")
   target_compile_definitions(miniapp PUBLIC USE_CATALYST=1)
-  target_link_libraries(miniapp PRIVATE catalyst::catalyst)
+  target_link_libraries(miniapp PRIVATE cublas OpenMP::OpenMP_CXX catalyst::catalyst)
 elseif(INSITU STREQUAL "Ascent")
   find_package(Ascent REQUIRED PATHS "/apps/daint/UES/Ascent/ascent-install/lib/cmake/ascent")
   add_executable(miniapp ${CUDA_SRCS} AscentAdaptor.cu)

@@ -29,6 +29,11 @@
 using namespace AscentAdaptor;
 #endif
 
+#ifdef USE_CATALYST
+#include "CatalystAdaptor.h"
+using namespace CatalystAdaptor;
+#endif
+
 using namespace data;
 using namespace linalg;
 using namespace operators;
@@ -37,7 +42,8 @@ using namespace stats;
 // read command line arguments
 static void readcmdline(Discretization& options, int argc, char* argv[])
 {
-    if (argc<5 || argc>6 ) {
+// we allow extra rguments for the Catalyst run-time
+    if (argc<5) {
         std::cerr << "Usage: main nx ny nt t\n";
         std::cerr << "  nx  number of gridpoints in x-direction\n";
         std::cerr << "  ny  number of gridpoints in y-direction\n";
@@ -168,11 +174,16 @@ int main(int argc, char* argv[])
 
     // TODO : ensure that the gpu copy of x_new has the up to date values that were just created
     x_new.update_device();
+
 #ifdef USE_ASCENT
-  AscentAdaptor::Initialize();
-  std::cout << "AscentInitialize" << std::endl;
+    AscentAdaptor::Initialize();
+    std::cout << "AscentInitialize" << std::endl;
 #endif
 
+#ifdef USE_CATALYST
+    CatalystAdaptor::Initialize(argc, argv);
+    std::cout << "CatalystInitialize" << std::endl;
+#endif
 
     flops_bc = 0;
     flops_diff = 0;
@@ -217,11 +228,16 @@ int main(int argc, char* argv[])
         }
         iters_newton += it+1;
 #ifdef USE_ASCENT
-        if(!(options.timestep % 10))
+        if(!(options.timestep % 50))
           {
           //x_new.update_host();
           AscentAdaptor::Execute();
           }
+#endif
+
+#ifdef USE_CATALYST
+        x_new.update_host();
+        CatalystAdaptor::Execute();
 #endif
 
         // output some statistics
@@ -237,6 +253,10 @@ int main(int argc, char* argv[])
             break;
         }
     }
+
+#ifdef USE_ASCENT
+  AscentAdaptor::Finalize();
+#endif
 
 #ifdef USE_ASCENT
   AscentAdaptor::Finalize();
