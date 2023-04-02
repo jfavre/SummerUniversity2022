@@ -15,7 +15,7 @@ cd build
 cmake -S .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES=60
 make
 Test => should generate file output.b*
-./bin/miniapp512 512 400 .1
+./bin/miniapp 512 512 400 .1
 
 ############ ASCENT support ##################################################
 1) Compile with Ascent turned ON
