@@ -7,6 +7,10 @@
 #include "util.hpp"
 #include "cuda_stream.hpp"
 
+#ifdef USE_ASCENT
+#include <ascent/ascent.hpp>
+#include "conduit_blueprint.hpp"
+#endif
 // 2D diffusion example
 // the grid has a fixed width of nx=128
 // the use specifies the height, ny, as a power of two
@@ -63,7 +67,51 @@ int main(int argc, char** argv) {
     double *x_host = malloc_host<double>(buffer_size);
     double *x0     = malloc_device<double>(buffer_size);
     double *x1     = malloc_device<double>(buffer_size);
+#ifdef USE_ASCENT
+  ascent::Ascent ascent;
+  conduit::Node mesh, actions;
+  std::cout << "AscentInitialize.........................................\n";
+  ascent.open();
 
+  mesh["coordsets/coords/dims/i"].set(nx);
+  mesh["coordsets/coords/dims/j"].set(ny);
+  // do not specify the 3rd dimension with a dim of 1, a z_origin, and a z_spacing
+
+  mesh["coordsets/coords/origin/x"].set(0.0);
+  mesh["coordsets/coords/origin/y"].set(0.0);
+  mesh["coordsets/coords/type"].set("uniform");
+
+  float spacing = 1.0/(nx+1.0);
+  mesh["coordsets/coords/spacing/dx"].set(spacing);
+  mesh["coordsets/coords/spacing/dy"].set(spacing);
+  
+  // add topology.
+  mesh["topologies/mesh/type"].set("uniform");
+  mesh["topologies/mesh/coordset"].set("coords");
+
+  // temperature is vertex-data.
+  mesh["fields/temperature/association"].set("vertex");
+  mesh["fields/temperature/type"].set("scalar");
+  mesh["fields/temperature/topology"].set("mesh");
+  mesh["fields/temperature/volume_dependent"].set("false");
+  mesh["fields/temperature/values"].set_external(x1, nx * ny);
+  
+  conduit::Node verify_info;
+  if (!conduit::blueprint::mesh::verify(mesh, verify_info))
+    {
+    // verify failed, print error message
+    CONDUIT_INFO("blueprint verify failed!" + verify_info.to_json());
+    }
+  else CONDUIT_INFO("blueprint verify success!");
+
+  conduit::Node &add_action = actions.append();
+  
+  add_action["action"] = "add_scenes";
+  conduit::Node &scenes       = add_action["scenes"];
+  scenes["view/plots/p1/type"]  = "pseudocolor";
+  scenes["view/plots/p1/field"] = "temperature";
+  scenes["view/image_prefix"] = "temperature_%04d";
+#endif
     // set initial conditions of 0 everywhere
     fill_gpu(x0, 0., buffer_size);
     fill_gpu(x1, 0., buffer_size);
@@ -90,11 +138,25 @@ int main(int argc, char** argv) {
         // TODO: launch the diffusion kernel in 2D
         diffusion<<<grid_dim, block_dim>>>(x0, x1, nx, ny, dt);
         std::swap(x0, x1);
+#ifdef USE_ASCENT
+        if(!(step % 50)) {
+          mesh["state/cycle"].set(step);
+          mesh["state/time"].set(dt);
+          ascent.publish(mesh);
+          ascent.execute(actions);
+        }
+#endif
     }
+
     auto stop_event = stream.enqueue_event();
     stop_event.wait();
 
     copy_to_host<double>(x0, x_host, buffer_size);
+
+#ifdef USE_ASCENT
+  ascent.close();
+  std::cout << "AscentFinalize.........................................\n";
+#endif
 
     double time = stop_event.time_since(start_event);
 
