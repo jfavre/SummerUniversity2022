@@ -11,6 +11,14 @@
 #include <ascent/ascent.hpp>
 #include "conduit_blueprint.hpp"
 #endif
+
+#ifdef USE_CATALYST
+#include <catalyst.hpp>
+#include "catalyst_conduit_blueprint.hpp"
+#include <catalyst_conduit.hpp>
+using namespace conduit_cpp;
+#endif
+
 // 2D diffusion example
 // the grid has a fixed width of nx=128
 // the use specifies the height, ny, as a power of two
@@ -34,15 +42,6 @@ void diffusion(double *x0, double *x1, int nx, int ny, double dt) {
 
     }
 }
-// TODO : implement stencil using 2d launch configuration
-// NOTE : i-major ordering, i.e. x[i,j] is indexed at location [i+j*nx]
-//  for(i=1; i<nx-1; ++i) {
-//    for(j=1; j<ny-1; ++j) {
-//        x1[i,j] = x0[i,j] + dt * (-4.*x0[i,j]
-//                   + x0[i,j-1] + x0[i,j+1]
-//                   + x0[i-1,j] + x0[i+1,j]);
-//    }
-//  }
 
 int main(int argc, char** argv) {
     // set up parameters
@@ -50,6 +49,66 @@ int main(int argc, char** argv) {
     size_t pow    = read_arg(argc, argv, 1, 8);
     // second argument is the number of time steps
     size_t nsteps = read_arg(argc, argv, 2, 100);
+
+#ifdef USE_CATALYST
+// consume the first two original arguments
+// and scan the catalyst-specific args
+  conduit_cpp::Node node;
+  for (int cc = 2; cc < argc; ++cc)
+    {
+    if (strcmp(argv[cc], "--output") == 0 && (cc + 1) < argc)
+      {
+      node["catalyst/pipelines/0/type"].set("io");
+      node["catalyst/pipelines/0/filename"].set(argv[cc + 1]);
+      node["catalyst/pipelines/0/channel"].set("grid");
+      ++cc;
+      }
+    else if (strcmp(argv[cc], "--pv") == 0 && (cc + 1) < argc)
+      {
+      const auto path = std::string(argv[cc + 1]);
+      node["catalyst/scripts/script0/filename"].set_string(path);
+      ++cc;
+      }
+    }
+
+  // indicate that we want to load ParaView-Catalyst
+  node["catalyst_load/implementation"].set_string("paraview");
+  // search path should be indicated via the env variable CATALYST_IMPLEMENTATION_PATHS
+  // node["catalyst_load/search_paths/paraview"] = PARAVIEW_IMPL_DIR;
+
+  catalyst_status err = catalyst_initialize(conduit_cpp::c_node(&node));
+  if (err != catalyst_status_ok)
+  {
+    std::cerr << "ERROR: Failed to initialize Catalyst: " << err << std::endl;
+  }
+  else
+  {
+    conduit_cpp::Node about_info;
+    catalyst_about(conduit_cpp::c_node(&about_info));
+    std::cout << about_info.to_yaml() ;
+    std::cout << "CatalystInitialize.........................................\n";
+  }
+  
+  conduit_cpp::Node catalyst;
+  auto catalyst_state = catalyst["catalyst/state"];
+
+  // Add channels.
+  // We only have 1 channel here. Let's name it 'grid'.
+  auto channel = catalyst["catalyst/channels/grid"];
+
+  // Since this example is using Conduit Mesh Blueprint to define the mesh,
+  // we set the channel's type to "mesh".
+  channel["type"].set("mesh");
+  auto mesh = channel["data"];
+  
+#endif
+
+#ifdef USE_ASCENT
+  ascent::Ascent ascent;
+  conduit::Node mesh, actions;
+  std::cout << "AscentInitialize.........................................\n";
+  ascent.open();
+#endif
 
     // set domain size
     size_t nx = 128+2;
@@ -67,12 +126,8 @@ int main(int argc, char** argv) {
     double *x_host = malloc_host<double>(buffer_size);
     double *x0     = malloc_device<double>(buffer_size);
     double *x1     = malloc_device<double>(buffer_size);
-#ifdef USE_ASCENT
-  ascent::Ascent ascent;
-  conduit::Node mesh, actions;
-  std::cout << "AscentInitialize.........................................\n";
-  ascent.open();
-
+    
+#if defined USE_ASCENT || defined USE_CATALYST
   mesh["coordsets/coords/dims/i"].set(nx);
   mesh["coordsets/coords/dims/j"].set(ny);
   // do not specify the 3rd dimension with a dim of 1, a z_origin, and a z_spacing
@@ -94,8 +149,19 @@ int main(int argc, char** argv) {
   mesh["fields/temperature/type"].set("scalar");
   mesh["fields/temperature/topology"].set("mesh");
   mesh["fields/temperature/volume_dependent"].set("false");
-  mesh["fields/temperature/values"].set_external(x1, nx * ny);
-  
+  mesh["fields/temperature/values"].set_external(x0, nx * ny);
+
+#endif
+
+#ifdef USE_CATALYST
+ conduit_cpp::Node verify_info;
+ if (!conduit_cpp::BlueprintMesh::verify(mesh, verify_info))
+   {
+   CATALYST_CONDUIT_ERROR("blueprint verify failed!")
+   }
+#endif
+
+#ifdef USE_ASCENT
   conduit::Node verify_info;
   if (!conduit::blueprint::mesh::verify(mesh, verify_info))
     {
@@ -135,16 +201,23 @@ int main(int argc, char** argv) {
 
     // time stepping loop
     for(auto step=0; step<nsteps; ++step) {
-        // TODO: launch the diffusion kernel in 2D
         diffusion<<<grid_dim, block_dim>>>(x0, x1, nx, ny, dt);
         std::swap(x0, x1);
 #ifdef USE_ASCENT
         if(!(step % 50)) {
           mesh["state/cycle"].set(step);
-          mesh["state/time"].set(dt);
+          mesh["state/time"].set(step * dt);
           ascent.publish(mesh);
           ascent.execute(actions);
         }
+#endif
+#ifdef USE_CATALYST
+        catalyst_state["timestep"].set(step);
+        catalyst_state["time"].set(step * dt);
+        copy_to_host<double>(x1, x_host, buffer_size);
+        catalyst_status err = catalyst_execute(conduit_cpp::c_node(&catalyst));
+        if (err != catalyst_status_ok)
+          std::cerr << "ERROR: Failed to execute Catalyst: " << err << std::endl;
 #endif
     }
 
@@ -158,6 +231,14 @@ int main(int argc, char** argv) {
   std::cout << "AscentFinalize.........................................\n";
 #endif
 
+#ifdef USE_CATALYST
+    conduit_cpp::Node nodef;
+    err = catalyst_finalize(conduit_cpp::c_node(&nodef));
+    if (err != catalyst_status_ok)
+      std::cerr << "ERROR: Failed to finalize Catalyst: " << err << std::endl;
+    std::cout << "CatalystFinalize.........................................\n";
+#endif
+
     double time = stop_event.time_since(start_event);
 
     std::cout << "## " << time << "s, "
@@ -166,6 +247,10 @@ int main(int argc, char** argv) {
 
     std::cout << "writing to output.bin/bov" << std::endl;
     write_to_file(nx, ny, x_host);
+    
+    free(x_host);
+    cudaFree(x0);
+    cudaFree(x1);
 
     return 0;
 }
